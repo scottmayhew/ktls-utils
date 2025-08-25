@@ -59,9 +59,11 @@ bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
 bool tlshd_config_get_client_privkey(gnutls_privkey_t *privkey);
 bool tlshd_config_get_server_truststore(char **bundle);
 bool tlshd_config_get_server_crl(char **result);
-bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
+bool tlshd_config_get_server_certs(const gchar *key,
+				   gnutls_pcert_st *certs,
 				   unsigned int *certs_len);
-bool tlshd_config_get_server_privkey(gnutls_privkey_t *privkey);
+bool tlshd_config_get_server_privkey(const gchar *key,
+				     gnutls_privkey_t *privkey);
 
 /* handshake.c */
 extern void tlshd_start_tls_handshake(gnutls_session_t session,

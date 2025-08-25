@@ -403,6 +403,7 @@ bool tlshd_config_get_server_crl(char **result)
 
 /**
  * tlshd_config_get_server_certs - Get certs for ServerHello from .conf
+ * @key: IN: the key field name from .conf
  * @certs: OUT: in-memory certificates
  * @certs_len: IN: maximum number of certs to get, OUT: number of certs found
  *
@@ -410,7 +411,8 @@ bool tlshd_config_get_server_crl(char **result)
  *   %true: certificate retrieved successfully
  *   %false: certificate not retrieved
  */
-bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
+bool tlshd_config_get_server_certs(const gchar *key,
+				   gnutls_pcert_st *certs,
 				   unsigned int *certs_len)
 {
 	gnutls_datum_t data;
@@ -418,7 +420,7 @@ bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
 	int ret;
 
 	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.server",
-					"x509.certificate", NULL);
+					key, NULL);
 	if (!pathname)
 		return false;
 
@@ -446,20 +448,22 @@ bool tlshd_config_get_server_certs(gnutls_pcert_st *certs,
 
 /**
  * tlshd_config_get_server_privkey - Get private key for ServerHello from .conf
+ * @key: IN: the key field name from .conf
  * @privkey: OUT: in-memory private key
  *
  * Return values:
  *   %true: private key retrieved successfully
  *   %false: private key not retrieved
  */
-bool tlshd_config_get_server_privkey(gnutls_privkey_t *privkey)
+bool tlshd_config_get_server_privkey(const gchar *key,
+				     gnutls_privkey_t *privkey)
 {
 	gnutls_datum_t data;
 	gchar *pathname;
 	int ret;
 
 	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.server",
-					"x509.private_key", NULL);
+					key, NULL);
 	if (!pathname)
 		return false;
 
