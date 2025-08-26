@@ -402,7 +402,8 @@ bool tlshd_config_get_server_crl(char **result)
 }
 
 #ifdef HAVE_GNUTLS_MLDSA
-static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data)
+static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data,
+				    gnutls_pk_algorithm_t *pkalg)
 {
 	gnutls_x509_crt_t cert;
 	gnutls_pk_algorithm_t pk_alg;
@@ -425,6 +426,7 @@ static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data)
 	case GNUTLS_PK_MLDSA44:
 	case GNUTLS_PK_MLDSA65:
 	case GNUTLS_PK_MLDSA87:
+		*pkalg = pk_alg;
 		break;
 	default:
 		gnutls_x509_crt_deinit(cert);
@@ -441,7 +443,7 @@ static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data)
  * @key: IN: the key field name from .conf
  * @certs: OUT: in-memory certificates
  * @certs_len: IN: maximum number of certs to get, OUT: number of certs found
- * @check_pq: IN: verify that the cert is using a PQ public-key alg
+ * @pkgalg: OUT: the PQ public-key alg that was used in the cert
  *
  * Return values:
  *   %true: certificate retrieved successfully
@@ -450,10 +452,10 @@ static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data)
 bool tlshd_config_get_server_certs(const gchar *key,
 				   gnutls_pcert_st *certs,
 				   unsigned int *certs_len,
-				   bool check_pq)
+				   gnutls_pk_algorithm_t *pkalg)
 {
 #ifndef HAVE_GNUTLS_MLSDA
-	(void)check_pq;
+	(void)pkalg;
 #endif /* HAVE_GNUTLS_MLDSA */
 	gnutls_datum_t data;
 	gchar *pathname;
@@ -471,7 +473,7 @@ bool tlshd_config_get_server_certs(const gchar *key,
 	}
 
 #ifdef HAVE_GNUTLS_MLDSA
-	if (check_pq && !tlshd_cert_check_pk_alg(&data)) {
+	if (pkalg && !tlshd_cert_check_pk_alg(&data, pkalg)) {
 		tlshd_log_debug("%s: %s certificate not using a PQ public-key algorithm",
 				__func__, key);
 		free(data.data);

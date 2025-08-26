@@ -50,6 +50,7 @@ static gnutls_pcert_st tlshd_server_certs[TLSHD_MAX_CERTS];
 static gnutls_privkey_t tlshd_server_pq_privkey;
 static unsigned int tlshd_server_pq_certs_len = TLSHD_MAX_CERTS;
 static gnutls_pcert_st tlshd_server_pq_certs[TLSHD_MAX_CERTS];
+static gnutls_pk_algorithm_t tlshd_server_pq_pkalg = GNUTLS_PK_UNKNOWN;
 #endif /* HAVE_GNUTLS_MLDSA */
 
 static bool tlshd_x509_server_get_certs(struct tlshd_handshake_parms *parms)
@@ -62,12 +63,12 @@ static bool tlshd_x509_server_get_certs(struct tlshd_handshake_parms *parms)
 	tlshd_config_get_server_certs("x509.pq.certificate",
 				      tlshd_server_pq_certs,
 				      &tlshd_server_pq_certs_len,
-				      true);
+				      &tlshd_server_pq_pkalg);
 #endif /* HAVE_GNUTLS_MLDSA */
 	return tlshd_config_get_server_certs("x509.certificate",
 					     tlshd_server_certs,
 					     &tlshd_server_certs_len,
-					     false);
+					     NULL);
 }
 
 static void tlshd_x509_server_put_certs(void)
@@ -158,20 +159,42 @@ tlshd_x509_retrieve_key_cb(gnutls_session_t session,
 		return -1;
 
 #ifdef HAVE_GNUTLS_MLDSA
-	for (i = 0; ; i++) {
-		ret = gnutls_sign_algorithm_get_requested(session, i, &client_alg);
-		if (ret != GNUTLS_E_SUCCESS)
-			break;
-		if (client_alg == GNUTLS_SIGN_MLDSA44
-				|| client_alg == GNUTLS_SIGN_MLDSA65
-				|| client_alg == GNUTLS_SIGN_MLDSA87) {
-			tlshd_log_debug("%s: Client supports ML-DSA", __func__);
-			use_pq_cert = true;
-			break;
+	/*
+ 	 * NB: Unfortunately when the callback function is invoked server-side,
+ 	 * pk_algos is NULL and pk_algos_length is 0. So we check the signature
+ 	 * algorithms the client supports and try to match one of them to the
+ 	 * public-key algorithm used by the server cert.
+ 	 */
+	if (tlshd_server_pq_pkalg != GNUTLS_PK_UNKNOWN) {
+		for (i = 0; ; i++) {
+			ret = gnutls_sign_algorithm_get_requested(session, i, &client_alg);
+			if (ret != GNUTLS_E_SUCCESS)
+				break;
+			switch (client_alg) {
+			case GNUTLS_SIGN_MLDSA44:
+				if (tlshd_server_pq_pkalg == GNUTLS_PK_MLDSA44)
+					use_pq_cert = true;
+				break;
+			case GNUTLS_SIGN_MLDSA65:
+				if (tlshd_server_pq_pkalg == GNUTLS_PK_MLDSA65)
+					use_pq_cert = true;
+				break;
+			case GNUTLS_SIGN_MLDSA87:
+				if (tlshd_server_pq_pkalg == GNUTLS_PK_MLDSA87)
+					use_pq_cert = true;
+				break;
+			default:
+				break;
+			}
+			if (use_pq_cert == true) {
+				tlshd_log_debug("%s: Client supports %s", __func__,
+						gnutls_sign_get_name(client_alg));
+				break;
+			}
 		}
 	}
 
-	if (use_pq_cert == true && tlshd_server_pq_certs_len > 0) {
+	if (use_pq_cert == true) {
 		tlshd_log_debug("%s: Selecting x509.pq.certificate from conf file", __func__);
 		*pcert_length = tlshd_server_pq_certs_len;
 		*pcert = tlshd_server_pq_certs;
