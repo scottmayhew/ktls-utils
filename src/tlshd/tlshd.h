@@ -61,7 +61,8 @@ bool tlshd_config_get_server_truststore(char **bundle);
 bool tlshd_config_get_server_crl(char **result);
 bool tlshd_config_get_server_certs(const gchar *key,
 				   gnutls_pcert_st *certs,
-				   unsigned int *certs_len);
+				   unsigned int *certs_len,
+				   bool check_pq);
 bool tlshd_config_get_server_privkey(const gchar *key,
 				     gnutls_privkey_t *privkey);
 

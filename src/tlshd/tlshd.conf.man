@@ -130,6 +130,8 @@ a PEM-encoded private key associated with the above certificate.
 This option specifies the pathname of a file containing
 a PEM-encoded x.509 certificate that is to be presented during
 a handshake request if the peer supports post-quantum cryptography.
+This certificate must be using a post-quantum public-key algorithm
+(ML-DSA-44, ML-DSA-65, or ML-DSA-87).
 If the peer does not support post-quantum cryptography, the
 certificate configured in the
 .I x509.certificate

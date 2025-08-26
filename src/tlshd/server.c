@@ -61,11 +61,13 @@ static bool tlshd_x509_server_get_certs(struct tlshd_handshake_parms *parms)
 #ifdef HAVE_GNUTLS_MLDSA
 	tlshd_config_get_server_certs("x509.pq.certificate",
 				      tlshd_server_pq_certs,
-				      &tlshd_server_pq_certs_len);
+				      &tlshd_server_pq_certs_len,
+				      true);
 #endif /* HAVE_GNUTLS_MLDSA */
 	return tlshd_config_get_server_certs("x509.certificate",
 					     tlshd_server_certs,
-					     &tlshd_server_certs_len);
+					     &tlshd_server_certs_len,
+					     false);
 }
 
 static void tlshd_x509_server_put_certs(void)

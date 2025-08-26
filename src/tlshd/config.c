@@ -401,11 +401,47 @@ bool tlshd_config_get_server_crl(char **result)
 	return true;
 }
 
+#ifdef HAVE_GNUTLS_MLDSA
+static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data)
+{
+	gnutls_x509_crt_t cert;
+	gnutls_pk_algorithm_t pk_alg;
+	int ret;
+
+	ret = gnutls_x509_crt_init(&cert);
+	if (ret < 0)
+		return false;
+
+	ret = gnutls_x509_crt_import(cert, data, GNUTLS_X509_FMT_PEM);
+	if (ret < 0) {
+		gnutls_x509_crt_deinit(cert);
+		return false;
+	}
+
+	pk_alg = gnutls_x509_crt_get_pk_algorithm(cert, NULL);
+	tlshd_log_debug("%s: certificate pk algorithm %s", __func__,
+			gnutls_pk_algorithm_get_name(pk_alg));
+	switch (pk_alg) {
+	case GNUTLS_PK_MLDSA44:
+	case GNUTLS_PK_MLDSA65:
+	case GNUTLS_PK_MLDSA87:
+		break;
+	default:
+		gnutls_x509_crt_deinit(cert);
+		return false;
+	}
+
+	gnutls_x509_crt_deinit(cert);
+	return true;
+}
+#endif /* HAVE_GNUTLS_MLDSA */
+
 /**
  * tlshd_config_get_server_certs - Get certs for ServerHello from .conf
  * @key: IN: the key field name from .conf
  * @certs: OUT: in-memory certificates
  * @certs_len: IN: maximum number of certs to get, OUT: number of certs found
+ * @check_pq: IN: verify that the cert is using a PQ public-key alg
  *
  * Return values:
  *   %true: certificate retrieved successfully
@@ -413,8 +449,12 @@ bool tlshd_config_get_server_crl(char **result)
  */
 bool tlshd_config_get_server_certs(const gchar *key,
 				   gnutls_pcert_st *certs,
-				   unsigned int *certs_len)
+				   unsigned int *certs_len,
+				   bool check_pq)
 {
+#ifndef HAVE_GNUTLS_MLSDA
+	(void)check_pq;
+#endif /* HAVE_GNUTLS_MLDSA */
 	gnutls_datum_t data;
 	gchar *pathname;
 	int ret;
@@ -429,6 +469,17 @@ bool tlshd_config_get_server_certs(const gchar *key,
 		g_free(pathname);
 		return false;
 	}
+
+#ifdef HAVE_GNUTLS_MLDSA
+	if (check_pq && !tlshd_cert_check_pk_alg(&data)) {
+		tlshd_log_debug("%s: %s certificate not using a PQ public-key algorithm",
+				__func__, key);
+		free(data.data);
+		g_free(pathname);
+		*certs_len = 0;
+		return false;
+	}
+#endif /* HAVE_GNUTLS_MLDSA */
 
 	/* Config file supports only PEM-encoded certificates */
 	ret = gnutls_pcert_list_import_x509_raw(certs, certs_len, &data,
