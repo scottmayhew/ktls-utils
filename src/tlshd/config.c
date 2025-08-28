@@ -248,24 +248,68 @@ bool tlshd_config_get_client_crl(char **result)
 	return true;
 }
 
+#ifdef HAVE_GNUTLS_MLDSA
+static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data,
+				    gnutls_pk_algorithm_t *pkalg)
+{
+	gnutls_x509_crt_t cert;
+	gnutls_pk_algorithm_t pk_alg;
+	int ret;
+
+	ret = gnutls_x509_crt_init(&cert);
+	if (ret < 0)
+		return false;
+
+	ret = gnutls_x509_crt_import(cert, data, GNUTLS_X509_FMT_PEM);
+	if (ret < 0) {
+		gnutls_x509_crt_deinit(cert);
+		return false;
+	}
+
+	pk_alg = gnutls_x509_crt_get_pk_algorithm(cert, NULL);
+	tlshd_log_debug("%s: certificate pk algorithm %s", __func__,
+			gnutls_pk_algorithm_get_name(pk_alg));
+	switch (pk_alg) {
+	case GNUTLS_PK_MLDSA44:
+	case GNUTLS_PK_MLDSA65:
+	case GNUTLS_PK_MLDSA87:
+		*pkalg = pk_alg;
+		break;
+	default:
+		gnutls_x509_crt_deinit(cert);
+		return false;
+	}
+
+	gnutls_x509_crt_deinit(cert);
+	return true;
+}
+#endif /* HAVE_GNUTLS_MLDSA */
+
 /**
  * tlshd_config_get_client_certs - Get certs for ClientHello from .conf
+ * @key: IN: the key field name from .conf
  * @certs: OUT: in-memory certificates
  * @certs_len: IN: maximum number of certs to get, OUT: number of certs found
+ * @pkgalg: OUT: the PQ public-key alg that was used in the cert
  *
  * Return values:
  *   %true: certificate retrieved successfully
  *   %false: certificate not retrieved
  */
-bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
-				   unsigned int *certs_len)
+bool tlshd_config_get_client_certs(const gchar *key,
+				   gnutls_pcert_st *certs,
+				   unsigned int *certs_len,
+				   gnutls_pk_algorithm_t *pkalg)
 {
+#ifndef HAVE_GNUTLS_MLSDA
+	(void)pkalg;
+#endif /* HAVE_GNUTLS_MLDSA */
 	gnutls_datum_t data;
 	gchar *pathname;
 	int ret;
 
 	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.client",
-					"x509.certificate", NULL);
+					key, NULL);
 	if (!pathname)
 		return false;
 
@@ -274,6 +318,17 @@ bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
 		g_free(pathname);
 		return false;
 	}
+
+#ifdef HAVE_GNUTLS_MLDSA
+	if (pkalg && !tlshd_cert_check_pk_alg(&data, pkalg)) {
+		tlshd_log_debug("%s: %s certificate not using a PQ public-key algorithm",
+				__func__, key);
+		free(data.data);
+		g_free(pathname);
+		*certs_len = 0;
+		return false;
+	}
+#endif /* HAVE_GNUTLS_MLDSA */
 
 	/* Config file supports only PEM-encoded certificates */
 	ret = gnutls_pcert_list_import_x509_raw(certs, certs_len, &data,
@@ -293,20 +348,22 @@ bool tlshd_config_get_client_certs(gnutls_pcert_st *certs,
 
 /**
  * tlshd_config_get_client_privkey - Get private key for ClientHello from .conf
+ * @key: IN: the key field name from .conf
  * @privkey: OUT: in-memory private key
  *
  * Return values:
  *   %true: private key retrieved successfully
  *   %false: private key not retrieved
  */
-bool tlshd_config_get_client_privkey(gnutls_privkey_t *privkey)
+bool tlshd_config_get_client_privkey(const gchar *key,
+				     gnutls_privkey_t *privkey)
 {
 	gnutls_datum_t data;
 	gchar *pathname;
 	int ret;
 
 	pathname = g_key_file_get_string(tlshd_configuration, "authenticate.client",
-					"x509.private_key", NULL);
+					key, NULL);
 	if (!pathname)
 		return false;
 
@@ -400,43 +457,6 @@ bool tlshd_config_get_server_crl(char **result)
 	tlshd_log_debug("Server x.509 crl is %s", *result);
 	return true;
 }
-
-#ifdef HAVE_GNUTLS_MLDSA
-static bool tlshd_cert_check_pk_alg(gnutls_datum_t *data,
-				    gnutls_pk_algorithm_t *pkalg)
-{
-	gnutls_x509_crt_t cert;
-	gnutls_pk_algorithm_t pk_alg;
-	int ret;
-
-	ret = gnutls_x509_crt_init(&cert);
-	if (ret < 0)
-		return false;
-
-	ret = gnutls_x509_crt_import(cert, data, GNUTLS_X509_FMT_PEM);
-	if (ret < 0) {
-		gnutls_x509_crt_deinit(cert);
-		return false;
-	}
-
-	pk_alg = gnutls_x509_crt_get_pk_algorithm(cert, NULL);
-	tlshd_log_debug("%s: certificate pk algorithm %s", __func__,
-			gnutls_pk_algorithm_get_name(pk_alg));
-	switch (pk_alg) {
-	case GNUTLS_PK_MLDSA44:
-	case GNUTLS_PK_MLDSA65:
-	case GNUTLS_PK_MLDSA87:
-		*pkalg = pk_alg;
-		break;
-	default:
-		gnutls_x509_crt_deinit(cert);
-		return false;
-	}
-
-	gnutls_x509_crt_deinit(cert);
-	return true;
-}
-#endif /* HAVE_GNUTLS_MLDSA */
 
 /**
  * tlshd_config_get_server_certs - Get certs for ServerHello from .conf

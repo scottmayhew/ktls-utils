@@ -138,12 +138,24 @@ static gnutls_privkey_t tlshd_privkey;
 static unsigned int tlshd_certs_len = TLSHD_MAX_CERTS;
 static gnutls_pcert_st tlshd_certs[TLSHD_MAX_CERTS];
 
+#ifdef HAVE_GNUTLS_MLDSA
+static gnutls_privkey_t tlshd_pq_privkey;
+static unsigned int tlshd_pq_certs_len = TLSHD_MAX_CERTS;
+static gnutls_pcert_st tlshd_pq_certs[TLSHD_MAX_CERTS];
+static gnutls_pk_algorithm_t tlshd_pq_pkalg = GNUTLS_PK_UNKNOWN;
+#endif /* HAVE_GNUTLS_MLDSA */
+
 static bool tlshd_x509_client_get_certs(struct tlshd_handshake_parms *parms)
 {
 	if (parms->x509_cert != TLS_NO_CERT)
 		return tlshd_keyring_get_certs(parms->x509_cert, tlshd_certs,
 					       &tlshd_certs_len);
-	return tlshd_config_get_client_certs(tlshd_certs, &tlshd_certs_len);
+#ifdef HAVE_GNUTLS_MLDSA
+	tlshd_config_get_client_certs("x509.pq.certificate", tlshd_pq_certs,
+				      &tlshd_pq_certs_len, &tlshd_pq_pkalg);
+#endif /* HAVE_GNUTLS_MLDSA */
+	return tlshd_config_get_client_certs("x509.certificate", tlshd_certs,
+					     &tlshd_certs_len, NULL);
 }
 
 static void tlshd_x509_client_put_certs(void)
@@ -152,6 +164,11 @@ static void tlshd_x509_client_put_certs(void)
 
 	for (i = 0; i < tlshd_certs_len; i++)
 		gnutls_pcert_deinit(&tlshd_certs[i]);
+
+#ifdef HAVE_GNUTLS_MLDSA
+	for (i = 0; i < tlshd_pq_certs_len; i++)
+		gnutls_pcert_deinit(&tlshd_pq_certs[i]);
+#endif /* HAVE_GNUTLS_MLDSA */
 }
 
 static bool tlshd_x509_client_get_privkey(struct tlshd_handshake_parms *parms)
@@ -159,12 +176,18 @@ static bool tlshd_x509_client_get_privkey(struct tlshd_handshake_parms *parms)
 	if (parms->x509_privkey != TLS_NO_PRIVKEY)
 		return tlshd_keyring_get_privkey(parms->x509_privkey,
 						 &tlshd_privkey);
-	return tlshd_config_get_client_privkey(&tlshd_privkey);
+#ifdef HAVE_GNUTLS_MLDSA
+	tlshd_config_get_client_privkey("x509.pq.private_key", &tlshd_pq_privkey);
+#endif /* HAVE_GNUTLS_MLDSA */
+	return tlshd_config_get_client_privkey("x509.private_key", &tlshd_privkey);
 }
 
 static void tlshd_x509_client_put_privkey(void)
 {
 	gnutls_privkey_deinit(tlshd_privkey);
+#ifdef HAVE_GNUTLS_MLDSA
+	gnutls_privkey_deinit(tlshd_pq_privkey);
+#endif /* HAVE_GNUTLS_MLDSA */
 }
 
 static void tlshd_x509_log_issuers(const gnutls_datum_t *req_ca_rdn, int nreqs)
@@ -203,13 +226,21 @@ static void tlshd_x509_log_issuers(const gnutls_datum_t *req_ca_rdn, int nreqs)
 static int
 tlshd_x509_retrieve_key_cb(gnutls_session_t session,
 			   const gnutls_datum_t *req_ca_rdn, int nreqs,
-			   __attribute__ ((unused)) const gnutls_pk_algorithm_t *pk_algos,
-			   __attribute__ ((unused)) int pk_algos_length,
+			   const gnutls_pk_algorithm_t *pk_algos,
+			   int pk_algos_length,
 			   gnutls_pcert_st **pcert,
 			   unsigned int *pcert_length,
 			   gnutls_privkey_t *privkey)
 {
+#ifndef HAVE_GNUTLS_MLDSA
+	(void)pk_algos;
+	(void)pk_algos_length;
+#endif /* HAVE_GNUTLS_MLDSA */
 	gnutls_certificate_type_t type;
+#ifdef HAVE_GNUTLS_MLDSA
+	bool use_pq_cert = false;
+	int i;
+#endif /* HAVE_GNUTLS_MLDSA */
 
 	tlshd_x509_log_issuers(req_ca_rdn, nreqs);
 
@@ -217,9 +248,36 @@ tlshd_x509_retrieve_key_cb(gnutls_session_t session,
 	if (type != GNUTLS_CRT_X509)
 		return -1;
 
+#ifdef HAVE_GNUTLS_MLDSA
+	if (tlshd_pq_pkalg != GNUTLS_PK_UNKNOWN) {
+		for (i = 0; i < pk_algos_length; i++) {
+			if (pk_algos[i] == tlshd_pq_pkalg) {
+				use_pq_cert = true;
+				break;
+			}
+		}
+		if (use_pq_cert == true) {
+			tlshd_log_debug("%s: Server supports %s", __func__,
+					gnutls_pk_algorithm_get_name(pk_algos[i]));
+		}
+	}
+
+	if (use_pq_cert == true) {
+		tlshd_log_debug("%s: Selecting x509.pq.certificate from conf file", __func__);
+		*pcert_length = tlshd_pq_certs_len;
+		*pcert = tlshd_pq_certs;
+		*privkey = tlshd_pq_privkey;
+	} else {
+		tlshd_log_debug("%s: Selecting x509.certificate from conf file", __func__);
+		*pcert_length = tlshd_certs_len;
+		*pcert = tlshd_certs;
+		*privkey = tlshd_privkey;
+	}
+#else
 	*pcert_length = tlshd_certs_len;
 	*pcert = tlshd_certs;
 	*privkey = tlshd_privkey;
+#endif /* HAVE_GNUTLS_MLDSA */
 	return 0;
 }
 
